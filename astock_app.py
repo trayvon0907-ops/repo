@@ -629,7 +629,18 @@ with tab_analysis:
         except Exception as e:
             st.warning(f"盘口解析异常：{e}")
         with st.expander("查看完整原始盘口字段"):
-            st.dataframe(ob_raw, hide_index=True, use_container_width=True)
+            _item_cn = {
+                "sell_5":"卖五价","sell_5_vol":"卖五量","sell_4":"卖四价","sell_4_vol":"卖四量",
+                "sell_3":"卖三价","sell_3_vol":"卖三量","sell_2":"卖二价","sell_2_vol":"卖二量",
+                "sell_1":"卖一价","sell_1_vol":"卖一量",
+                "buy_1":"买一价","buy_1_vol":"买一量","buy_2":"买二价","buy_2_vol":"买二量",
+                "buy_3":"买三价","buy_3_vol":"买三量","buy_4":"买四价","buy_4_vol":"买四量",
+                "buy_5":"买五价","buy_5_vol":"买五量",
+            }
+            _ob_show = ob_raw.copy()
+            _ob_show.iloc[:, 0] = _ob_show.iloc[:, 0].map(lambda x: _item_cn.get(str(x), x))
+            _ob_show.columns = ["字段", "数值"]
+            st.dataframe(_ob_show, hide_index=True, use_container_width=True)
     else:
         st.info("盘口数据未取到（多在收盘后/周末发生）。")
 
@@ -676,6 +687,11 @@ with tab_analysis:
                 low=d["最低"], close=d["收盘"], name="K线",
                 increasing_line_color="#e63946",
                 decreasing_line_color="#2a9d8f",
+                hovertext=[
+                    f"开盘: {o:.2f}<br>最高: {h:.2f}<br>最低: {l:.2f}<br>收盘: {c:.2f}"
+                    for o, h, l, c in zip(d["开盘"], d["最高"], d["最低"], d["收盘"])
+                ],
+                hoverinfo="x+text",
             ),
             row=1, col=1,
         )
