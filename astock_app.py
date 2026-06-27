@@ -23,6 +23,12 @@ except Exception as e:  # pragma: no cover
     st.stop()
 
 try:
+    import yfinance as yf
+    _YF_OK = True
+except Exception:
+    _YF_OK = False
+
+try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 except Exception:
@@ -150,10 +156,46 @@ def _safe_num(val):
         return None
 
 
+def _code_to_yf(code: str) -> str:
+    """A股代码转 Yahoo Finance ticker：沪市加 .SS，深市加 .SZ。"""
+    c = code.zfill(6)
+    return f"{c}.SS" if c.startswith("6") else f"{c}.SZ"
+
+
 @st.cache_data(ttl=300, show_spinner=False)
-def get_hist(code: str, period: str = "daily", days: int = 400):
+def get_hist(code: str, period: str = "daily", days: int = 300):
+    """
+    优先用 yfinance 拉日线（快），失败自动降级到 akshare。
+    统一输出列：date, 开盘, 最高, 最低, 收盘, 成交量
+    """
+    if _YF_OK and period == "daily":
+        try:
+            ticker = _code_to_yf(code)
+            # 多取 60 天余量保证指标计算够用
+            start_dt = dt.date.today() - dt.timedelta(days=days + 60)
+            raw = yf.download(ticker, start=start_dt.strftime("%Y-%m-%d"),
+                              auto_adjust=True, progress=False)
+            if raw is not None and not raw.empty:
+                # yfinance multi-level columns → flatten
+                if isinstance(raw.columns, pd.MultiIndex):
+                    raw.columns = raw.columns.get_level_values(0)
+                df = raw[["Open", "High", "Low", "Close", "Volume"]].copy()
+                df = df.rename(columns={
+                    "Open": "开盘", "High": "最高",
+                    "Low": "最低", "Close": "收盘", "Volume": "成交量"
+                })
+                df.index.name = "date"
+                df = df.reset_index()
+                df["date"] = pd.to_datetime(df["date"])
+                # yfinance 成交量单位是"股"，转换为"手"（÷100）
+                df["成交量"] = (df["成交量"] / 100).round(0)
+                return df.tail(days).reset_index(drop=True)
+        except Exception:
+            pass  # 降级到 akshare
+
+    # 降级：akshare
     end = dt.date.today().strftime("%Y%m%d")
-    start = (dt.date.today() - dt.timedelta(days=days * 2 + 30)).strftime("%Y%m%d")
+    start = (dt.date.today() - dt.timedelta(days=days + 60)).strftime("%Y%m%d")
     df = _retry(lambda: ak.stock_zh_a_hist(symbol=code, period=period,
                                            start_date=start, end_date=end,
                                            adjust="qfq", timeout=20))
@@ -847,29 +889,29 @@ with tab_analysis:
 
     # ---------- 六、公司最新公告 ----------
     st.subheader("六、公司最新公告")
-    st.caption("数据来源：东方财富，每 30 分钟刷新一次。公告内容请以交易所官网为准。")
-    try:
-        notices = get_notices(code)
-        if notices is not None and not notices.empty:
-            # 兼容不同版本 akshare 的字段名
-            title_col = next((c for c in notices.columns if "标题" in c or "title" in c.lower()), None)
-            date_col  = next((c for c in notices.columns if "时间" in c or "日期" in c or "date" in c.lower()), None)
-            url_col   = next((c for c in notices.columns if "链接" in c or "url" in c.lower() or "http" in str(notices[c].iloc[0]).lower()), None)
-
-            for _, row in notices.iterrows():
-                title = str(row[title_col]) if title_col else "（公告）"
-                date  = str(row[date_col])  if date_col  else ""
-                url   = str(row[url_col])   if url_col   else ""
-                link  = f'<a href="{url}" target="_blank" style="color:#00d4ff;text-decoration:none;">{title}</a>' if url else title
-                st.markdown(
-                    f'<div class="notice-card">{link}'
-                    f'<div class="notice-date">📅 {date}</div></div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.info("近 15 日暂无公告数据，或接口暂时不可用。")
-    except Exception as e:
-        st.info(f"公告获取失败：{e}")
+    st.caption("数据来源：东方财富。公告内容请以交易所官网为准。")
+    if st.button("📋 加载近 15 日公告", key="load_notices"):
+        with st.spinner("正在抓取公告…"):
+            try:
+                notices = get_notices(code)
+                if notices is not None and not notices.empty:
+                    title_col = next((c for c in notices.columns if "标题" in c or "title" in c.lower()), None)
+                    date_col  = next((c for c in notices.columns if "时间" in c or "日期" in c or "date" in c.lower()), None)
+                    url_col   = next((c for c in notices.columns if "链接" in c or "url" in c.lower() or "http" in str(notices[c].iloc[0]).lower()), None)
+                    for _, row in notices.iterrows():
+                        title = str(row[title_col]) if title_col else "（公告）"
+                        date  = str(row[date_col])  if date_col  else ""
+                        url   = str(row[url_col])   if url_col   else ""
+                        link  = f'<a href="{url}" target="_blank" style="color:#00d4ff;text-decoration:none;">{title}</a>' if url else title
+                        st.markdown(
+                            f'<div class="notice-card">{link}'
+                            f'<div class="notice-date">📅 {date}</div></div>',
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.info("近 15 日暂无公告数据，或接口暂时不可用。")
+            except Exception as e:
+                st.info(f"公告获取失败：{e}")
 
 # ============================================================
 # Tab 2 — 持仓组合
