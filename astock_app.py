@@ -78,24 +78,26 @@ def clean_code(raw: str) -> str:
     return digits[-6:] if len(digits) >= 6 else digits
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_stock_name(code: str) -> str:
-    """用 stock_info_a_code_name 查股票简称，该接口只返回 [代码, 名称] 两列，最稳定。"""
-    df = _retry(lambda: ak.stock_info_a_code_name())
-    row = df[df.iloc[:, 0].astype(str).str.zfill(6) == code.zfill(6)]
-    if not row.empty:
-        return str(row.iloc[0, 1]).strip()
+    """从全市场快照（东方财富）取股票简称，该接口在本地和云端均可用。"""
+    try:
+        df = _retry(lambda: ak.stock_zh_a_spot_em())
+        row = df[df["代码"].astype(str).str.zfill(6) == code.zfill(6)]
+        if not row.empty:
+            return str(row.iloc[0]["名称"]).strip()
+    except Exception:
+        pass
     return ""
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_info(code: str) -> dict:
-    """取单只股票基本信息（名称、行业）。名称优先用 get_stock_name，行业从 individual_info_em 取。"""
+    """取单只股票基本信息（名称、行业）。名称用 get_stock_name，行业从 individual_info_em 取。"""
     name = get_stock_name(code)
     industry = ""
     try:
         raw = _retry(lambda: ak.stock_individual_info_em(symbol=code))
-        # 兼容 2列/3列 两种返回格式
         if raw.shape[1] >= 2:
             d = dict(zip(raw.iloc[:, 0].astype(str), raw.iloc[:, 1].astype(str)))
         else:
