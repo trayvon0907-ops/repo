@@ -352,12 +352,91 @@ def render_portfolio():
 
 
 # ============================================================
-# 4. 页面布局
+# 4. 公告数据
+# ============================================================
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_notices(code: str):
+    """获取个股最新公告列表，返回 DataFrame 或 None。"""
+    try:
+        df = _retry(lambda: ak.stock_notice_report(symbol=code))
+        if df is None or df.empty:
+            return None
+        return df.head(10)
+    except Exception:
+        return None
+
+
+# ============================================================
+# 5. 页面布局
 # ============================================================
 st.set_page_config(page_title="A股分析面板", page_icon="📈", layout="wide")
 
 if not check_password():
     st.stop()
+
+# 科技感深色风格 CSS
+st.markdown("""
+<style>
+/* 全局背景与字体 */
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(135deg, #0a0e1a 0%, #0d1b2a 60%, #0a1628 100%);
+    color: #e0e6f0;
+}
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0d1b2a 0%, #0a1220 100%);
+    border-right: 1px solid #1e3a5f;
+}
+/* 标题 */
+h1 { color: #00d4ff !important; letter-spacing: 2px; }
+h2, h3 { color: #7eb8f7 !important; }
+/* metric 卡片 */
+[data-testid="metric-container"] {
+    background: rgba(0, 180, 255, 0.06);
+    border: 1px solid #1e3a5f;
+    border-radius: 8px;
+    padding: 10px 14px;
+}
+[data-testid="stMetricValue"] { color: #00d4ff !important; font-size: 1.3em !important; }
+[data-testid="stMetricLabel"] { color: #7eb8f7 !important; }
+/* 按钮 */
+[data-testid="baseButton-primary"] {
+    background: linear-gradient(90deg, #005f8a, #0096c7) !important;
+    border: none !important; color: #fff !important;
+    box-shadow: 0 0 12px rgba(0,180,255,0.4);
+}
+/* 表格 */
+[data-testid="stTable"] table { background: rgba(10,20,40,0.8) !important; }
+thead tr th { background: #0d2137 !important; color: #00d4ff !important; }
+tbody tr:nth-child(odd) td  { background: rgba(0,100,180,0.08) !important; }
+tbody tr:hover td { background: rgba(0,180,255,0.12) !important; }
+/* dataframe */
+[data-testid="stDataFrame"] { border: 1px solid #1e3a5f; border-radius: 6px; }
+/* 分割线 */
+hr { border-color: #1e3a5f !important; }
+/* tab */
+[data-baseweb="tab-list"] { background: transparent !important; border-bottom: 1px solid #1e3a5f; }
+[data-baseweb="tab"] { color: #7eb8f7 !important; }
+[aria-selected="true"] { color: #00d4ff !important; border-bottom: 2px solid #00d4ff !important; }
+/* 公告卡片 */
+.notice-card {
+    background: rgba(0,100,180,0.10);
+    border: 1px solid #1e3a5f;
+    border-left: 3px solid #00d4ff;
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin-bottom: 8px;
+    font-size: 0.92em;
+    color: #c8d8f0;
+}
+.notice-card .notice-date { color: #5a8abf; font-size: 0.85em; margin-top: 4px; }
+/* expander */
+[data-testid="stExpander"] {
+    background: rgba(0,50,100,0.15) !important;
+    border: 1px solid #1e3a5f !important;
+    border-radius: 6px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 st.title("📈 A股分析面板")
 st.caption("数据来源：东方财富（经 akshare）｜ 仅供学习参考，不构成投资建议")
@@ -665,6 +744,32 @@ with tab_analysis:
             st.caption(f"📊 FFT 主导周期估计：约 {cyc} 个日（实验性，仅作节奏参考，勿单独依赖）")
     else:
         st.warning("K线数据不足，无法计算指标。")
+
+    # ---------- 六、公司最新公告 ----------
+    st.subheader("六、公司最新公告")
+    st.caption("数据来源：东方财富，每 30 分钟刷新一次。公告内容请以交易所官网为准。")
+    try:
+        notices = get_notices(code)
+        if notices is not None and not notices.empty:
+            # 兼容不同版本 akshare 的字段名
+            title_col = next((c for c in notices.columns if "标题" in c or "title" in c.lower()), None)
+            date_col  = next((c for c in notices.columns if "时间" in c or "日期" in c or "date" in c.lower()), None)
+            url_col   = next((c for c in notices.columns if "链接" in c or "url" in c.lower() or "http" in str(notices[c].iloc[0]).lower()), None)
+
+            for _, row in notices.iterrows():
+                title = str(row[title_col]) if title_col else "（公告）"
+                date  = str(row[date_col])  if date_col  else ""
+                url   = str(row[url_col])   if url_col   else ""
+                link  = f'<a href="{url}" target="_blank" style="color:#00d4ff;text-decoration:none;">{title}</a>' if url else title
+                st.markdown(
+                    f'<div class="notice-card">{link}'
+                    f'<div class="notice-date">📅 {date}</div></div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("暂未获取到公告数据（非交易日或接口暂时不可用）。")
+    except Exception as e:
+        st.info(f"公告获取失败：{e}")
 
 # ============================================================
 # Tab 2 — 持仓组合
