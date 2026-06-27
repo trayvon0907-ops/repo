@@ -524,7 +524,25 @@ with tab_analysis:
         stock_name     = _info["名称"] or code
         stock_industry = _info["行业"]
     except Exception:
-        pass  # 降级：用代码当标题
+        pass
+
+    # 如果名称仍等于代码，说明字段没取到，直接从全市场快照的 ob_d 里取（盘口接口不含名称，用备用方案）
+    if stock_name == code:
+        try:
+            _raw = _retry(lambda: ak.stock_individual_info_em(symbol=code))
+            # 把所有字段打印到 expander 供调试
+            _all_fields = dict(zip(_raw.iloc[:, 0], _raw.iloc[:, 1]))
+            # 遍历所有 value，找第一个像股票名称（2-5个汉字）的
+            import re as _re
+            for _v in _all_fields.values():
+                _s = str(_v).strip()
+                if _re.match(r'^[一-龥A-Za-z]{2,8}$', _s) and not _s.isdigit():
+                    stock_name = _s
+                    break
+            with st.expander("🔧 调试：stock_individual_info_em 原始字段（确认名称后可告知删除）"):
+                st.write(_all_fields)
+        except Exception as _e:
+            st.caption(f"调试：info 接口失败 {_e}")
 
     _name_part = stock_name if stock_name != code else code
     _industry_part = f" · {stock_industry}" if stock_industry else ""
@@ -600,7 +618,7 @@ with tab_analysis:
                     "价格": f"{p:.2f}" if p is not None else "—",
                     "委托量(手)": f"{int(v):,}" if v is not None else "—",
                 })
-            st.dataframe(pd.DataFrame(book_rows), hide_index=True, use_container_width=True)
+            st.table(pd.DataFrame(book_rows))
         except Exception as e:
             st.warning(f"盘口解析异常：{e}")
         with st.expander("查看完整原始盘口字段"):
