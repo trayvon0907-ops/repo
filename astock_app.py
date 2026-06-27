@@ -79,10 +79,16 @@ def clean_code(raw: str) -> str:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def _get_all_names() -> pd.DataFrame:
+    """拉取全市场代码-名称表，缓存1小时，所有股票共用一份，避免每换代码都重新抓。"""
+    df = _retry(lambda: ak.stock_zh_a_spot_em())
+    return df[["代码", "名称"]].copy()
+
+
 def get_stock_name(code: str) -> str:
-    """从全市场快照（东方财富）取股票简称，该接口在本地和云端均可用。"""
+    """从已缓存的全市场名称表里查单只股票简称，无需重复网络请求。"""
     try:
-        df = _retry(lambda: ak.stock_zh_a_spot_em())
+        df = _get_all_names()
         row = df[df["代码"].astype(str).str.zfill(6) == code.zfill(6)]
         if not row.empty:
             return str(row.iloc[0]["名称"]).strip()
