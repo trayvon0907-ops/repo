@@ -79,18 +79,32 @@ def clean_code(raw: str) -> str:
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
+def get_stock_name(code: str) -> str:
+    """用 stock_info_a_code_name 查股票简称，该接口只返回 [代码, 名称] 两列，最稳定。"""
+    df = _retry(lambda: ak.stock_info_a_code_name())
+    row = df[df.iloc[:, 0].astype(str).str.zfill(6) == code.zfill(6)]
+    if not row.empty:
+        return str(row.iloc[0, 1]).strip()
+    return ""
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_stock_info(code: str) -> dict:
-    """
-    取单只股票基本信息（名称、行业）。
-    兼容不同版本 akshare 的字段名差异。
-    """
-    raw = _retry(lambda: ak.stock_individual_info_em(symbol=code))
-    d = dict(zip(raw.iloc[:, 0], raw.iloc[:, 1]))
-    # 兼容多种可能的字段名
-    name = (d.get("股票简称") or d.get("名称") or d.get("证券简称")
-            or d.get("stock_name") or "")
-    industry = (d.get("行业") or d.get("所属行业") or d.get("行业板块")
-                or d.get("industry") or "")
+    """取单只股票基本信息（名称、行业）。名称优先用 get_stock_name，行业从 individual_info_em 取。"""
+    name = get_stock_name(code)
+    industry = ""
+    try:
+        raw = _retry(lambda: ak.stock_individual_info_em(symbol=code))
+        # 兼容 2列/3列 两种返回格式
+        if raw.shape[1] >= 2:
+            d = dict(zip(raw.iloc[:, 0].astype(str), raw.iloc[:, 1].astype(str)))
+        else:
+            d = {}
+        if not name:
+            name = (d.get("股票简称") or d.get("名称") or d.get("证券简称") or "")
+        industry = (d.get("行业") or d.get("所属行业") or d.get("行业板块") or "")
+    except Exception:
+        pass
     return {"名称": str(name).strip(), "行业": str(industry).strip()}
 
 
@@ -526,23 +540,14 @@ with tab_analysis:
     except Exception:
         pass
 
-    # 如果名称仍等于代码，说明字段没取到，直接从全市场快照的 ob_d 里取（盘口接口不含名称，用备用方案）
+    # 名称仍为代码则再用 stock_info_a_code_name 直接查一次（绕过缓存的失败结果）
     if stock_name == code:
         try:
-            _raw = _retry(lambda: ak.stock_individual_info_em(symbol=code))
-            # 把所有字段打印到 expander 供调试
-            _all_fields = dict(zip(_raw.iloc[:, 0], _raw.iloc[:, 1]))
-            # 遍历所有 value，找第一个像股票名称（2-5个汉字）的
-            import re as _re
-            for _v in _all_fields.values():
-                _s = str(_v).strip()
-                if _re.match(r'^[一-龥A-Za-z]{2,8}$', _s) and not _s.isdigit():
-                    stock_name = _s
-                    break
-            with st.expander("🔧 调试：stock_individual_info_em 原始字段（确认名称后可告知删除）"):
-                st.write(_all_fields)
-        except Exception as _e:
-            st.caption(f"调试：info 接口失败 {_e}")
+            _n = get_stock_name(code)
+            if _n:
+                stock_name = _n
+        except Exception:
+            pass
 
     _name_part = stock_name if stock_name != code else code
     _industry_part = f" · {stock_industry}" if stock_industry else ""
