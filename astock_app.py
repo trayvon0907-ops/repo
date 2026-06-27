@@ -82,15 +82,16 @@ def clean_code(raw: str) -> str:
 def get_stock_info(code: str) -> dict:
     """
     取单只股票基本信息（名称、行业）。
-    ak.stock_individual_info_em 返回 item/value 两列，速度快、只查单只。
-    ttl=86400 缓存一天（名称基本不变）。
+    兼容不同版本 akshare 的字段名差异。
     """
     raw = _retry(lambda: ak.stock_individual_info_em(symbol=code))
     d = dict(zip(raw.iloc[:, 0], raw.iloc[:, 1]))
-    return {
-        "名称": str(d.get("股票简称", "")),
-        "行业": str(d.get("行业", "")),
-    }
+    # 兼容多种可能的字段名
+    name = (d.get("股票简称") or d.get("名称") or d.get("证券简称")
+            or d.get("stock_name") or "")
+    industry = (d.get("行业") or d.get("所属行业") or d.get("行业板块")
+                or d.get("industry") or "")
+    return {"名称": str(name).strip(), "行业": str(industry).strip()}
 
 
 @st.cache_data(ttl=8, show_spinner=False)
@@ -356,14 +357,35 @@ def render_portfolio():
 # ============================================================
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_notices(code: str):
-    """获取个股最新公告列表，返回 DataFrame 或 None。"""
+    """
+    获取个股近期公告。
+    优先用 stock_notice_report，失败则用 stock_announcement_em，
+    不依赖当日是否为交易日，返回最近 5 日内公告（最多10条）。
+    """
+    end = dt.date.today()
+    start = end - dt.timedelta(days=5)
+
+    # 方法一
     try:
         df = _retry(lambda: ak.stock_notice_report(symbol=code))
-        if df is None or df.empty:
-            return None
-        return df.head(10)
+        if df is not None and not df.empty:
+            return df.head(10)
     except Exception:
-        return None
+        pass
+
+    # 方法二：东财公告接口
+    try:
+        df = _retry(lambda: ak.stock_announcement_em(
+            symbol=code,
+            start_date=start.strftime("%Y%m%d"),
+            end_date=end.strftime("%Y%m%d"),
+        ))
+        if df is not None and not df.empty:
+            return df.head(10)
+    except Exception:
+        pass
+
+    return None
 
 
 # ============================================================
@@ -404,24 +426,40 @@ h2, h3 { color: #7eb8f7 !important; }
     border: none !important; color: #fff !important;
     box-shadow: 0 0 12px rgba(0,180,255,0.4);
 }
-/* 表格 st.table / st.dataframe */
-[data-testid="stTable"] table { background: rgba(10,20,40,0.8) !important; }
+/* st.table — 强制覆盖所有内置样式 */
+[data-testid="stTable"] table,
+div[data-testid="stTable"] table {
+    background: rgba(8,18,38,0.95) !important;
+    border-collapse: collapse !important;
+}
+[data-testid="stTable"] th,
+div[data-testid="stTable"] th,
 [data-testid="stTable"] thead tr th {
-    background: #0d2137 !important;
+    background: #0a1e38 !important;
     color: #00d4ff !important;
-    font-weight: 700;
+    font-weight: 700 !important;
+    border: 1px solid #1e3a5f !important;
+    padding: 8px 12px !important;
 }
+[data-testid="stTable"] td,
+div[data-testid="stTable"] td,
 [data-testid="stTable"] tbody tr td {
-    color: #d0e8ff !important;
-    border-color: #1e3a5f !important;
+    color: #d4eaff !important;
+    border: 1px solid #152a45 !important;
+    padding: 7px 12px !important;
 }
-[data-testid="stTable"] tbody tr:nth-child(odd) td { background: rgba(0,80,160,0.12) !important; }
-[data-testid="stTable"] tbody tr:hover td { background: rgba(0,180,255,0.15) !important; }
-/* st.dataframe 内部文字 */
-[data-testid="stDataFrame"] * { color: #d0e8ff !important; }
-[data-testid="stDataFrame"] th { color: #00d4ff !important; background: #0d2137 !important; }
-/* dataframe */
+[data-testid="stTable"] tr:nth-child(odd) td,
+[data-testid="stTable"] tbody tr:nth-child(odd) td {
+    background: rgba(0,80,160,0.10) !important;
+}
+[data-testid="stTable"] tr:hover td,
+[data-testid="stTable"] tbody tr:hover td {
+    background: rgba(0,180,255,0.14) !important;
+}
+/* st.dataframe */
 [data-testid="stDataFrame"] { border: 1px solid #1e3a5f; border-radius: 6px; }
+[data-testid="stDataFrame"] * { color: #d4eaff !important; }
+[data-testid="stDataFrame"] th { color: #00d4ff !important; background: #0a1e38 !important; }
 /* 分割线 */
 hr { border-color: #1e3a5f !important; }
 /* tab */
@@ -782,7 +820,7 @@ with tab_analysis:
                     unsafe_allow_html=True,
                 )
         else:
-            st.info("暂未获取到公告数据（非交易日或接口暂时不可用）。")
+            st.info("近 5 日暂无公告数据，或接口暂时不可用。")
     except Exception as e:
         st.info(f"公告获取失败：{e}")
 
