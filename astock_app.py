@@ -404,11 +404,22 @@ h2, h3 { color: #7eb8f7 !important; }
     border: none !important; color: #fff !important;
     box-shadow: 0 0 12px rgba(0,180,255,0.4);
 }
-/* 表格 */
+/* 表格 st.table / st.dataframe */
 [data-testid="stTable"] table { background: rgba(10,20,40,0.8) !important; }
-thead tr th { background: #0d2137 !important; color: #00d4ff !important; }
-tbody tr:nth-child(odd) td  { background: rgba(0,100,180,0.08) !important; }
-tbody tr:hover td { background: rgba(0,180,255,0.12) !important; }
+[data-testid="stTable"] thead tr th {
+    background: #0d2137 !important;
+    color: #00d4ff !important;
+    font-weight: 700;
+}
+[data-testid="stTable"] tbody tr td {
+    color: #d0e8ff !important;
+    border-color: #1e3a5f !important;
+}
+[data-testid="stTable"] tbody tr:nth-child(odd) td { background: rgba(0,80,160,0.12) !important; }
+[data-testid="stTable"] tbody tr:hover td { background: rgba(0,180,255,0.15) !important; }
+/* st.dataframe 内部文字 */
+[data-testid="stDataFrame"] * { color: #d0e8ff !important; }
+[data-testid="stDataFrame"] th { color: #00d4ff !important; background: #0d2137 !important; }
 /* dataframe */
 [data-testid="stDataFrame"] { border: 1px solid #1e3a5f; border-radius: 6px; }
 /* 分割线 */
@@ -477,10 +488,14 @@ with tab_analysis:
     except Exception:
         pass  # 降级：用代码当标题
 
-    _title = f"{stock_name}（{code}）"
-    if stock_industry:
-        _title += f"　{stock_industry}"
-    st.subheader(f"一、实时行情 — {_title}")
+    _name_part = stock_name if stock_name != code else code
+    _industry_part = f" · {stock_industry}" if stock_industry else ""
+    _title_html = (
+        f'<span style="color:#00d4ff;font-size:1.25em;font-weight:700">{_name_part}</span>'
+        f'<span style="color:#5a8abf;font-size:1em;margin-left:10px">({code})</span>'
+        f'<span style="color:#7eb8f7;font-size:0.95em;margin-left:12px">{_industry_part}</span>'
+    )
+    st.markdown(f"### 一、实时行情 &nbsp; {_title_html}", unsafe_allow_html=True)
 
     price = 0.0
     ob_d, ob_raw = None, None
