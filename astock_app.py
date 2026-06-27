@@ -29,6 +29,12 @@ except Exception:
     _YF_OK = False
 
 try:
+    from streamlit_autorefresh import st_autorefresh
+    _AR_OK = True
+except Exception:
+    _AR_OK = False
+
+try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 except Exception:
@@ -554,6 +560,17 @@ hr { border-color: #1e3a5f !important; }
 st.title("📈 A股分析面板")
 st.caption("数据来源：东方财富（经 akshare）｜ 仅供学习参考，不构成投资建议")
 
+def _in_trading_hours() -> bool:
+    """判断当前是否在 A 股交易时段（北京时间，周一至周五）。"""
+    now = dt.datetime.utcnow() + dt.timedelta(hours=8)  # UTC→北京时间
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    am = dt.time(9, 30) <= t <= dt.time(11, 30)
+    pm = dt.time(13, 0) <= t <= dt.time(15, 0)
+    return am or pm
+
+
 with st.sidebar:
     st.header("① 单股分析")
     code_in = st.text_input("股票代码（6位）", value="600519",
@@ -562,6 +579,18 @@ with st.sidebar:
     run = st.button("🔍 开始分析", use_container_width=True, type="primary")
     st.button("🔄 刷新实时数据", use_container_width=True,
               on_click=st.cache_data.clear)
+    st.divider()
+    auto_on = st.toggle("⚡ 实时自动刷新", value=False,
+                        help="交易时段（9:30-11:30 / 13:00-15:00）每 5 秒自动更新行情与盘口")
+    if auto_on:
+        if _in_trading_hours():
+            if _AR_OK:
+                st_autorefresh(interval=5000, key="ar")
+                st.caption("🟢 交易中·每 5 秒刷新")
+            else:
+                st.caption("⚠️ autorefresh 组件未加载")
+        else:
+            st.caption("🔴 非交易时段·暂停自动刷新")
 
 tab_analysis, tab_portfolio = st.tabs(["📊 单股分析", "💼 持仓组合"])
 
