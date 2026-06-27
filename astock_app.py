@@ -376,16 +376,16 @@ def get_notices(code: str):
     """
     获取个股近期公告。
     优先用 stock_notice_report，失败则用 stock_announcement_em，
-    不依赖当日是否为交易日，返回最近 5 日内公告（最多10条）。
+    不依赖当日是否为交易日，返回最近 15 日内公告（最多15条）。
     """
     end = dt.date.today()
-    start = end - dt.timedelta(days=5)
+    start = end - dt.timedelta(days=15)
 
     # 方法一
     try:
         df = _retry(lambda: ak.stock_notice_report(symbol=code))
         if df is not None and not df.empty:
-            return df.head(10)
+            return df.head(15)
     except Exception:
         pass
 
@@ -397,7 +397,7 @@ def get_notices(code: str):
             end_date=end.strftime("%Y%m%d"),
         ))
         if df is not None and not df.empty:
-            return df.head(10)
+            return df.head(15)
     except Exception:
         pass
 
@@ -845,7 +845,7 @@ with tab_analysis:
                     unsafe_allow_html=True,
                 )
         else:
-            st.info("近 5 日暂无公告数据，或接口暂时不可用。")
+            st.info("近 15 日暂无公告数据，或接口暂时不可用。")
     except Exception as e:
         st.info(f"公告获取失败：{e}")
 
